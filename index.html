@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Neural Forge — Sentiment ML Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:        #090b10;
+  --surface:   #0d1117;
+  --card:      #111820;
+  --border:    #1e2a38;
+  --accent:    #00e5ff;
+  --accent2:   #7c3aed;
+  --pos:       #00ffa3;
+  --neg:       #ff4757;
+  --text:      #e2e8f0;
+  --muted:     #64748b;
+  --mono:      'IBM Plex Mono', monospace;
+  --sans:      'Syne', sans-serif;
+  --radius:    12px;
+  --glow:      0 0 20px rgba(0,229,255,.18);
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── Noise overlay ── */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none; z-index: 0; opacity: .4;
+}
+
+/* ── Grid bg ── */
+body::after {
+  content: '';
+  position: fixed; inset: 0;
+  background-image:
+    linear-gradient(rgba(0,229,255,.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,229,255,.035) 1px, transparent 1px);
+  background-size: 48px 48px;
+  pointer-events: none; z-index: 0;
+}
+
+/* ── Header ── */
+header {
+  position: relative; z-index: 10;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(13,17,23,.95) 0%, transparent 100%);
+  backdrop-filter: blur(12px);
+  padding: 0 2rem;
+  height: 64px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.logo {
+  display: flex; align-items: center; gap: .75rem;
+  font-size: 1.2rem; font-weight: 800; letter-spacing: -.02em;
+}
+.logo-icon {
+  width: 32px; height: 32px;
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: var(--glow);
+  font-size: .85rem;
+}
+.logo span { color: var(--accent); }
+.header-right { display: flex; align-items: center; gap: 1rem; }
+.status-pill {
+  display: flex; align-items: center; gap: .5rem;
+  padding: .3rem .8rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: .75rem; font-family: var(--mono);
+  background: var(--surface);
+}
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.status-dot.active { background: var(--pos); box-shadow: 0 0 8px var(--pos); animation: pulse 1.5s infinite; }
+.status-dot.error  { background: var(--neg); }
+
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+/* ── Layout ── */
+main {
+  position: relative; z-index: 1;
+  max-width: 1400px; margin: 0 auto;
+  padding: 2rem;
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  grid-template-rows: auto auto 1fr;
+  gap: 1.25rem;
+  grid-template-areas:
+    "controls  hero"
+    "controls  charts"
+    "controls  bottom";
+}
+
+/* ── Cards ── */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  position: relative;
+  overflow: hidden;
+}
+.card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0;
+  transition: opacity .3s;
+}
+.card:hover::before { opacity: .5; }
+.card-title {
+  font-size: .7rem; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 1rem;
+  display: flex; align-items: center; gap: .5rem;
+}
+.card-title .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ── Controls panel ── */
+.panel-controls { grid-area: controls; }
+
+/* ── Metric hero ── */
+.hero-metrics { grid-area: hero; display: grid; grid-template-columns: repeat(4,1fr); gap: 1rem; }
+.metric-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+  position: relative; overflow: hidden;
+}
+.metric-card::after {
+  content: attr(data-glyph);
+  position: absolute; right: 1rem; bottom: .5rem;
+  font-size: 2.5rem; opacity: .06; pointer-events: none;
+}
+.metric-label { font-size: .68rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: .4rem; }
+.metric-value { font-size: 2rem; font-weight: 800; line-height: 1; }
+.metric-value.cyan  { color: var(--accent); }
+.metric-value.green { color: var(--pos); }
+.metric-value.purple{ color: #a78bfa; }
+.metric-value.orange{ color: #fb923c; }
+.metric-sub { font-size: .72rem; color: var(--muted); margin-top: .3rem; font-family: var(--mono); }
+
+/* ── Charts ── */
+.charts-grid { grid-area: charts; display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+.chart-wrap { height: 220px; position: relative; }
+
+/* ── Bottom ── */
+.bottom-row { grid-area: bottom; display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
+  padding: .75rem 1.5rem;
+  border-radius: 8px;
+  font-family: var(--sans); font-size: .875rem; font-weight: 700;
+  cursor: pointer; transition: all .2s; border: none; width: 100%;
+  letter-spacing: .02em;
+}
+.btn-primary {
+  background: var(--accent); color: #000;
+  box-shadow: 0 0 20px rgba(0,229,255,.25);
+}
+.btn-primary:hover { background: #33eaff; box-shadow: 0 0 30px rgba(0,229,255,.4); transform: translateY(-1px); }
+.btn-primary:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; box-shadow: none; transform: none; }
+.btn-secondary {
+  background: transparent; color: var(--text);
+  border: 1px solid var(--border);
+}
+.btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Progress bar ── */
+.progress-wrap { margin: 1rem 0; }
+.progress-label { display: flex; justify-content: space-between; font-size: .75rem; margin-bottom: .4rem; font-family: var(--mono); }
+.progress-track { height: 4px; background: var(--border); border-radius: 99px; overflow: hidden; }
+.progress-fill {
+  height: 100%; border-radius: 99px;
+  background: linear-gradient(90deg, var(--accent2), var(--accent));
+  transition: width .4s ease;
+  box-shadow: 0 0 12px rgba(0,229,255,.4);
+  width: 0%;
+}
+
+/* ── Input ── */
+.input-group { position: relative; margin-bottom: 1rem; }
+.input-group textarea {
+  width: 100%; padding: .875rem 1rem;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text);
+  font-family: var(--sans); font-size: .9rem; resize: vertical; min-height: 100px;
+  transition: border-color .2s;
+}
+.input-group textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,229,255,.1); }
+.input-group textarea::placeholder { color: var(--muted); }
+
+/* ── Prediction result ── */
+.prediction-result {
+  margin-top: 1rem;
+  border-radius: 8px;
+  padding: 1.25rem;
+  display: none;
+  animation: fadeIn .3s ease;
+}
+.prediction-result.pos { background: rgba(0,255,163,.06); border: 1px solid rgba(0,255,163,.2); }
+.prediction-result.neg { background: rgba(255,71,87,.06);  border: 1px solid rgba(255,71,87,.2); }
+.pred-label { font-size: 1.5rem; font-weight: 800; margin-bottom: .25rem; }
+.pred-label.pos { color: var(--pos); }
+.pred-label.neg { color: var(--neg); }
+.pred-conf { font-size: .8rem; color: var(--muted); font-family: var(--mono); }
+.prob-bar-row { display: flex; gap: .5rem; align-items: center; margin-top: .75rem; font-size: .75rem; font-family: var(--mono); }
+.prob-bar-track { flex: 1; height: 6px; background: var(--border); border-radius: 99px; overflow: hidden; }
+.prob-bar-fill { height: 100%; border-radius: 99px; transition: width .5s ease; }
+.prob-bar-fill.pos { background: var(--pos); }
+.prob-bar-fill.neg { background: var(--neg); }
+
+@keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+
+/* ── Log terminal ── */
+.log-terminal {
+  background: #060910;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  height: 220px;
+  overflow-y: auto;
+  font-family: var(--mono);
+  font-size: .72rem;
+  line-height: 1.6;
+}
+.log-terminal::-webkit-scrollbar { width: 4px; }
+.log-terminal::-webkit-scrollbar-track { background: transparent; }
+.log-terminal::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+.log-line { display: block; }
+.log-line .ts { color: var(--muted); margin-right: .5rem; }
+.log-line .msg { color: #94a3b8; }
+.log-line.info .msg { color: #e2e8f0; }
+.log-line.error .msg { color: var(--neg); }
+
+/* ── Prediction history ── */
+.pred-history { margin-top: .75rem; max-height: 220px; overflow-y: auto; }
+.pred-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: .5rem .75rem; border-radius: 6px; margin-bottom: .4rem;
+  background: var(--surface); border: 1px solid var(--border);
+  font-size: .8rem; animation: fadeIn .25s ease;
+}
+.pred-item .excerpt { color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: .75rem; }
+.pred-badge {
+  padding: .2rem .5rem; border-radius: 4px;
+  font-family: var(--mono); font-size: .7rem; font-weight: 600; flex-shrink: 0;
+}
+.pred-badge.pos { background: rgba(0,255,163,.12); color: var(--pos); }
+.pred-badge.neg { background: rgba(255,71,87,.12);  color: var(--neg); }
+
+/* ── Responsive ── */
+@media(max-width:1100px) {
+  main { grid-template-columns: 1fr; grid-template-areas: "controls" "hero" "charts" "bottom"; }
+}
+@media(max-width:700px) {
+  .hero-metrics { grid-template-columns: 1fr 1fr; }
+  .charts-grid  { grid-template-columns: 1fr; }
+  .bottom-row   { grid-template-columns: 1fr; }
+}
+
+/* ── Shimmer idle state ── */
+.metric-value.idle { color: var(--border); }
+.idle-glow {
+  animation: idleGlow 2s ease-in-out infinite;
+}
+@keyframes idleGlow { 0%,100%{opacity:.3} 50%{opacity:.7} }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">⚡</div>
+    NEURAL<span>FORGE</span>
+  </div>
+  <div class="header-right">
+    <div class="status-pill">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">IDLE</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ── Controls Panel ── -->
+  <aside class="card panel-controls">
+    <div class="card-title"><div class="dot"></div> Model Pipeline</div>
+
+    <div style="margin-bottom:1.25rem">
+      <div style="font-size:.8rem;color:var(--muted);margin-bottom:.5rem;">Architecture</div>
+      <div style="font-family:var(--mono);font-size:.75rem;line-height:2;color:#94a3b8;">
+        TF-IDF Vectorizer (n-gram 1–2)<br>
+        ↓ 10,000 features (sublinear TF)<br>
+        ↓ Logistic Regression (C=2.0)<br>
+        ↓ Softmax → {Negative, Positive}
+      </div>
+    </div>
+
+    <div style="margin-bottom:1.25rem">
+      <div style="font-size:.8rem;color:var(--muted);margin-bottom:.5rem;">Dataset</div>
+      <div style="font-family:var(--mono);font-size:.75rem;line-height:2;color:#94a3b8;">
+        Product review sentiment<br>
+        60 seed samples × 9 augmented<br>
+        ≈ 540 total  |  50/50 balanced<br>
+        Split: 68% / 12% / 20%
+      </div>
+    </div>
+
+    <div class="progress-wrap">
+      <div class="progress-label">
+        <span style="color:var(--muted)">Training progress</span>
+        <span id="progressPct" style="color:var(--accent)">0%</span>
+      </div>
+      <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+    </div>
+
+    <button class="btn btn-primary" id="trainBtn" onclick="startTraining()">
+      ▶ Start Training
+    </button>
+    <button class="btn btn-secondary" style="margin-top:.75rem" onclick="resetAll()">
+      ↺ Reset
+    </button>
+
+    <div style="margin-top:1.5rem">
+      <div class="card-title" style="margin-bottom:.75rem"><div class="dot"></div> Live Inference</div>
+      <div class="input-group">
+        <textarea id="inferInput" placeholder="Type a product review to analyse…&#10;&#10;e.g. 'The build quality is excellent and it arrived fast!'" onkeydown="handleKey(event)"></textarea>
+      </div>
+      <button class="btn btn-primary" id="predictBtn" onclick="runPrediction()" disabled>
+        ⚡ Analyse Sentiment
+      </button>
+      <div class="prediction-result" id="predResult">
+        <div class="pred-label" id="predLabel"></div>
+        <div class="pred-conf" id="predConf"></div>
+        <div class="prob-bar-row">
+          <span style="color:var(--neg);width:50px">NEG</span>
+          <div class="prob-bar-track"><div class="prob-bar-fill neg" id="barNeg"></div></div>
+          <span id="pctNeg" style="width:38px;text-align:right"></span>
+        </div>
+        <div class="prob-bar-row">
+          <span style="color:var(--pos);width:50px">POS</span>
+          <div class="prob-bar-track"><div class="prob-bar-fill pos" id="barPos"></div></div>
+          <span id="pctPos" style="width:38px;text-align:right"></span>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Metric Hero ── -->
+  <section class="hero-metrics">
+    <div class="metric-card" data-glyph="🎯">
+      <div class="metric-label">Accuracy</div>
+      <div class="metric-value cyan idle idle-glow" id="mAccuracy">—</div>
+      <div class="metric-sub" id="mAccuracySub">awaiting training</div>
+    </div>
+    <div class="metric-card" data-glyph="⚖️">
+      <div class="metric-label">F1 Score</div>
+      <div class="metric-value green idle idle-glow" id="mF1">—</div>
+      <div class="metric-sub" id="mF1Sub">awaiting training</div>
+    </div>
+    <div class="metric-card" data-glyph="🔍">
+      <div class="metric-label">Precision</div>
+      <div class="metric-value purple idle idle-glow" id="mPrec">—</div>
+      <div class="metric-sub" id="mPrecSub">awaiting training</div>
+    </div>
+    <div class="metric-card" data-glyph="📡">
+      <div class="metric-label">Recall</div>
+      <div class="metric-value orange idle idle-glow" id="mRec">—</div>
+      <div class="metric-sub" id="mRecSub">awaiting training</div>
+    </div>
+  </section>
+
+  <!-- ── Charts ── -->
+  <section class="charts-grid">
+    <div class="card">
+      <div class="card-title"><div class="dot"></div> Accuracy Curve</div>
+      <div class="chart-wrap"><canvas id="accChart"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><div class="dot"></div> Loss Curve</div>
+      <div class="chart-wrap"><canvas id="lossChart"></canvas></div>
+    </div>
+  </section>
+
+  <!-- ── Bottom ── -->
+  <section class="bottom-row">
+    <div class="card">
+      <div class="card-title"><div class="dot"></div> Training Log</div>
+      <div class="log-terminal" id="logTerminal">
+        <span class="log-line"><span class="ts">--:--:--</span><span class="msg">Neural Forge initialised. Click "Start Training" to begin.</span></span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><div class="dot"></div> Prediction History</div>
+      <div class="pred-history" id="predHistory">
+        <div style="color:var(--muted);font-size:.8rem;text-align:center;padding:2rem 0;">Run inference to see predictions here</div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+
+const API_BASE = (() => {
+  // If served from localhost:8000 use relative root; if opened as file:// use absolute
+  if (window.location.protocol === 'file:' || window.location.port !== '8000') {
+    return 'http://localhost:8000';
+  }
+  return '';
+})();
+
+const chartDefaults = {
+  responsive: true, maintainAspectRatio: false,
+  animation: { duration: 400 },
+  plugins: { legend: { display: true, labels: { color: '#64748b', font: { family: "'IBM Plex Mono'" }, boxWidth: 12, padding: 16 } } },
+  scales: {
+    x: { grid: { color: '#1e2a38' }, ticks: { color: '#475569', font: { family: "'IBM Plex Mono'", size: 10 } }, title: { display: true, text: 'Epoch', color: '#475569', font: { family: "'IBM Plex Mono'", size: 10 } } },
+    y: { grid: { color: '#1e2a38' }, ticks: { color: '#475569', font: { family: "'IBM Plex Mono'", size: 10 } } },
+  },
+};
+
+const accCtx = document.getElementById('accChart').getContext('2d');
+const accChart = new Chart(accCtx, {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [
+      { label: 'Train Acc', data: [], borderColor: '#7c3aed', backgroundColor: 'rgba(124,58,237,.08)', tension: .4, pointRadius: 3, borderWidth: 2 },
+      { label: 'Val Acc',   data: [], borderColor: '#00e5ff', backgroundColor: 'rgba(0,229,255,.06)',  tension: .4, pointRadius: 3, borderWidth: 2 },
+    ],
+  },
+  options: { ...chartDefaults, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, min: 0, max: 1 } } },
+});
+
+const lossCtx = document.getElementById('lossChart').getContext('2d');
+const lossChart = new Chart(lossCtx, {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [
+      { label: 'Train Loss', data: [], borderColor: '#fb923c', backgroundColor: 'rgba(251,146,60,.08)', tension: .4, pointRadius: 3, borderWidth: 2 },
+      { label: 'Val Loss',   data: [], borderColor: '#f43f5e', backgroundColor: 'rgba(244,63,94,.06)',  tension: .4, pointRadius: 3, borderWidth: 2 },
+    ],
+  },
+  options: chartDefaults,
+});
+
+let polling = null;
+let predHistory = [];
+let prevCurveLen = 0;
+
+async function startTraining() {
+  document.getElementById('trainBtn').disabled = true;
+  document.getElementById('trainBtn').textContent = '⏳ Training…';
+  prevCurveLen = 0;
+  accChart.data.labels = []; accChart.data.datasets[0].data = []; accChart.data.datasets[1].data = []; accChart.update();
+  lossChart.data.labels = []; lossChart.data.datasets[0].data = []; lossChart.data.datasets[1].data = []; lossChart.update();
+  document.getElementById('logTerminal').innerHTML = '';
+
+  try {
+    await fetch(API_BASE + '/api/train', { method: 'POST' });
+    startPolling();
+  } catch(e) {
+    alert('Failed to start training: ' + e.message);
+    resetTrainBtn();
+  }
+}
+
+function startPolling() {
+  if (polling) clearInterval(polling);
+  polling = setInterval(poll, 800);
+}
+
+async function poll() {
+  try {
+    const r = await fetch(API_BASE + '/api/status');
+    const d = await r.json();
+    updateUI(d);
+    if (d.status === 'ready' || d.status === 'error' || d.status === 'idle') {
+      clearInterval(polling); polling = null;
+      resetTrainBtn(d.status);
+    }
+  } catch(e) { /* silent */ }
+}
+
+function updateUI(d) {
+  // Status pill
+  const dot  = document.getElementById('statusDot');
+  const stxt = document.getElementById('statusText');
+  dot.className = 'status-dot' + (d.status === 'training' ? ' active' : d.status === 'error' ? ' error' : '');
+  stxt.textContent = d.status.toUpperCase();
+
+  // Progress
+  const pct = d.progress || 0;
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('progressPct').textContent = pct + '%';
+
+  // Metrics
+  if (d.metrics && d.metrics.accuracy != null) {
+    setMetric('mAccuracy', 'mAccuracySub', (d.metrics.accuracy * 100).toFixed(1) + '%', `${d.metrics.test_size} test samples`);
+    setMetric('mF1',       'mF1Sub',       d.metrics.f1_score.toFixed(4), 'positive class F1');
+    setMetric('mPrec',     'mPrecSub',     d.metrics.precision.toFixed(4), 'positive precision');
+    setMetric('mRec',      'mRecSub',      d.metrics.recall.toFixed(4), 'positive recall');
+    document.getElementById('predictBtn').disabled = false;
+  }
+
+  // Training curve
+  if (d.training_curve && d.training_curve.length > prevCurveLen) {
+    const curve = d.training_curve;
+    accChart.data.labels  = curve.map(c => c.epoch);
+    accChart.data.datasets[0].data = curve.map(c => c.train_acc);
+    accChart.data.datasets[1].data = curve.map(c => c.val_acc);
+    lossChart.data.labels = curve.map(c => c.epoch);
+    lossChart.data.datasets[0].data = curve.map(c => c.train_loss);
+    lossChart.data.datasets[1].data = curve.map(c => c.val_loss);
+    accChart.update('none');
+    lossChart.update('none');
+    prevCurveLen = curve.length;
+  }
+
+  // Log
+  if (d.log && d.log.length) {
+    const term = document.getElementById('logTerminal');
+    const wasBottom = term.scrollHeight - term.scrollTop <= term.clientHeight + 10;
+    term.innerHTML = d.log.map(l =>
+      `<span class="log-line ${l.level}"><span class="ts">${l.ts}</span><span class="msg">${escHtml(l.msg)}</span></span>`
+    ).join('\n');
+    if (wasBottom) term.scrollTop = term.scrollHeight;
+  }
+}
+
+function setMetric(id, subId, val, sub) {
+  const el = document.getElementById(id);
+  el.textContent = val;
+  el.classList.remove('idle', 'idle-glow');
+  document.getElementById(subId).textContent = sub;
+}
+
+function resetTrainBtn(status) {
+  const btn = document.getElementById('trainBtn');
+  btn.disabled = false;
+  btn.textContent = status === 'ready' ? '▶ Retrain' : '▶ Start Training';
+}
+
+async function runPrediction() {
+  const text = document.getElementById('inferInput').value.trim();
+  if (!text) return;
+  const btn = document.getElementById('predictBtn');
+  btn.disabled = true; btn.textContent = '⚡ Analysing…';
+
+  try {
+    const r = await fetch(API_BASE + '/api/predict', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ text }),
+    });
+    const d = await r.json();
+    showPrediction(d);
+    addToHistory(d);
+  } catch(e) {
+    alert('Prediction error: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = '⚡ Analyse Sentiment';
+  }
+}
+
+function showPrediction(d) {
+  const box   = document.getElementById('predResult');
+  const label = document.getElementById('predLabel');
+  const conf  = document.getElementById('predConf');
+  const isPos = d.sentiment === 'Positive';
+  box.className = 'prediction-result ' + (isPos ? 'pos' : 'neg');
+  box.style.display = 'block';
+  label.className = 'pred-label ' + (isPos ? 'pos' : 'neg');
+  label.textContent = (isPos ? '✅ ' : '❌ ') + d.sentiment;
+  conf.textContent  = `Confidence: ${(d.confidence * 100).toFixed(1)}%`;
+  document.getElementById('barNeg').style.width = (d.prob_neg * 100) + '%';
+  document.getElementById('barPos').style.width = (d.prob_pos * 100) + '%';
+  document.getElementById('pctNeg').textContent = (d.prob_neg * 100).toFixed(0) + '%';
+  document.getElementById('pctPos').textContent = (d.prob_pos * 100).toFixed(0) + '%';
+}
+
+function addToHistory(d) {
+  predHistory.unshift(d);
+  if (predHistory.length > 20) predHistory.pop();
+  const hist = document.getElementById('predHistory');
+  hist.innerHTML = predHistory.map(p => {
+    const pos = p.sentiment === 'Positive';
+    return `<div class="pred-item">
+      <span class="excerpt">${escHtml(p.text.substring(0, 60))}${p.text.length > 60 ? '…' : ''}</span>
+      <span class="pred-badge ${pos ? 'pos' : 'neg'}">${pos ? '▲ POS' : '▼ NEG'} ${(p.confidence * 100).toFixed(0)}%</span>
+    </div>`;
+  }).join('');
+}
+
+function resetAll() {
+  if (polling) { clearInterval(polling); polling = null; }
+  document.getElementById('progressFill').style.width = '0%';
+  document.getElementById('progressPct').textContent = '0%';
+  document.getElementById('statusDot').className = 'status-dot';
+  document.getElementById('statusText').textContent = 'IDLE';
+  document.getElementById('trainBtn').disabled = false;
+  document.getElementById('trainBtn').textContent = '▶ Start Training';
+  document.getElementById('predictBtn').disabled = true;
+  document.getElementById('predResult').style.display = 'none';
+  document.getElementById('inferInput').value = '';
+  document.getElementById('logTerminal').innerHTML = '<span class="log-line"><span class="ts">--:--:--</span><span class="msg">Reset complete. Ready to train.</span></span>';
+  predHistory = [];
+  document.getElementById('predHistory').innerHTML = '<div style="color:var(--muted);font-size:.8rem;text-align:center;padding:2rem 0;">Run inference to see predictions here</div>';
+  ['mAccuracy','mF1','mPrec','mRec'].forEach(id => {
+    const el = document.getElementById(id);
+    el.textContent = '—'; el.classList.add('idle','idle-glow');
+  });
+  ['mAccuracySub','mF1Sub','mPrecSub','mRecSub'].forEach(id => document.getElementById(id).textContent = 'awaiting training');
+  accChart.data.labels = []; accChart.data.datasets[0].data = []; accChart.data.datasets[1].data = []; accChart.update();
+  lossChart.data.labels = []; lossChart.data.datasets[0].data = []; lossChart.data.datasets[1].data = []; lossChart.update();
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) runPrediction();
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Auto-check if model already loaded
+window.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const r = await fetch(API_BASE + '/api/status');
+    const d = await r.json();
+    if (d.status === 'training') { updateUI(d); startPolling(); }
+    else if (d.status === 'ready') { updateUI(d); resetTrainBtn('ready'); }
+  } catch(e) {}
+});
+</script>
+</body>
+</html>
